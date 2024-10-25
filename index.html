@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geospatial Point Generator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.css"/>
+    <style>
+        #map { height: 400px; }
+        pre { white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+
+<h1>Geospatial Point Generator</h1>
+<div id="map"></div>
+<button onclick="generatePoints()">Generate Points</button>
+<button onclick="downloadFiles()">Download GeoJSON & GeoParquet</button>
+<p id="info"></p>
+<pre id="output"></pre>
+
+<script>
+    const polygon = [
+        [33.981520960450396, -6.863877312313122],
+        [33.97476682686131, -6.870622594648012],
+        [33.97368801377053, -6.87072488811728],
+        [33.97292195290903, -6.8706482201185395],
+        [33.97129272252971, -6.868248395529321],
+        [33.98049170661784, -6.858996236117292],
+        [33.980850816170786, -6.862752106395959],
+        [33.981520960450396, -6.863877312313122] // Closing the polygon
+    ];
+
+    const map = L.map('map').setView([33.97678705684454, -6.865859985487674], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+    }).addTo(map);
+    
+    L.polygon(polygon).addTo(map);
+
+    let points = []; // Array to hold generated points
+
+    function getRandomFloat(min, max) {
+        return Math.random() * (max - min) + min;
+    }
+
+    function generatePoints() {
+        points = []; // Reset points
+        const spacing = 0.001;  // Reduced spacing between points
+        const lineDistance = 0.001;  // Reduced distance between lines
+
+        // Get bounds for the polygon
+        const bounds = L.polygon(polygon).getBounds();
+
+        for (let x = bounds.getWest(); x < bounds.getEast(); x += spacing) {
+            for (let y = bounds.getSouth(); y < bounds.getNorth(); y += lineDistance) {
+                if (isPointInPolygon([y, x], polygon)) {
+                    const variedPoint = [
+                        getRandomFloat(-0.00005, 0.00005) + y,
+                        getRandomFloat(-0.00005, 0.00005) + x
+                    ];
+                    points.push(variedPoint);
+                    L.marker(variedPoint).addTo(map);
+                }
+            }
+        }
+        updateInfo(); // Update point count and file size
+        document.getElementById('output').innerText = JSON.stringify(points, null, 2);
+    }
+
+    function isPointInPolygon(point, polygon) {
+        let inside = false;
+        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            const xi = polygon[i][1], yi = polygon[i][0];
+            const xj = polygon[j][1], yj = polygon[j][0];
+            const intersect = ((yi > point[0]) !== (yj > point[0])) &&
+                (point[1] < (xj - xi) * (point[0] - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    }
+
+    function downloadFiles() {
+        const geojson = {
+            type: "FeatureCollection",
+            features: points.map(point => ({
+                type: "Feature",
+                properties: {},
+                geometry: {
+                    type: "Point",
+                    coordinates: [point[1], point[0]] // [longitude, latitude]
+                }
+            }))
+        };
+
+        // Create GeoJSON Blob
+        const geojsonBlob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' });
+        const geojsonUrl = URL.createObjectURL(geojsonBlob);
+        
+        // Download GeoJSON
+        const geojsonLink = document.createElement('a');
+        geojsonLink.href = geojsonUrl;
+        geojsonLink.download = 'points.geojson';
+        document.body.appendChild(geojsonLink);
+        geojsonLink.click();
+        document.body.removeChild(geojsonLink);
+
+        // Convert and download GeoParquet (simulated)
+        fetch('/convert', {  // Update this URL to point to your backend endpoint
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(geojson)
+        })
+        .then(response => {
+            if (!response.ok) throw new Error('Network response was not ok');
+            return response.blob();
+        })
+        .then(blob => {
+            const geoparquetUrl = URL.createObjectURL(blob);
+            const geoparquetLink = document.createElement('a');
+            geoparquetLink.href = geoparquetUrl;
+            geoparquetLink.download = 'points.geoparquet';
+            document.body.appendChild(geoparquetLink);
+            geoparquetLink.click();
+            document.body.removeChild(geoparquetLink);
+            URL.revokeObjectURL(geoparquetUrl); // Clean up
+        })
+        .catch(error => console.error('Error downloading GeoParquet:', error));
+    }
+
+    function updateInfo(size = 0) {
+        const pointCount = points.length;
+        const sizeInKB = (size / 1024).toFixed(2); // Convert size to KB
+        document.getElementById('info').innerText = `Number of Points: ${pointCount} | File Size: ${sizeInKB} KB`;
+    }
+</script>
+
+</body>
+</html>
